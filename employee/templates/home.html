@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Employee List</title>
+</head>
+<body>
+
+<h2>Employee List</h2>
+
+<a href="/add/">Add Employee</a>
+
+<br><br>
+
+<table border="1" cellpadding="10">
+    <tr>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Age</th>
+        <th>City</th>
+        <th>Action</th>
+    </tr>
+
+    {% for emp in employees %}
+    <tr>
+        <td>{{ emp.name }}</td>
+        <td>{{ emp.email }}</td>
+        <td>{{ emp.age }}</td>
+        <td>{{ emp.city }}</td>
+        <td>
+            <a href="/edit/{{ emp.id }}/">Edit</a>
+            |
+            <a href="/delete/{{ emp.id }}/">Delete</a>
+        </td>
+    </tr>
+    {% endfor %}
+
+</table>
+
+</body>
+</html>
