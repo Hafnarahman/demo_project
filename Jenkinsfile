@@ -25,7 +25,7 @@ pipeline {
                         "$BACKUP_DIR/db_$(date +%Y%m%d_%H%M%S).sqlite3"
                     fi
 
-                    # Backup complete project
+                    # Backup Project
                     tar -czf "$BACKUP_DIR/project_$(date +%Y%m%d_%H%M%S).tar.gz" \
                     "$APP_DIR"
 
@@ -43,7 +43,7 @@ pipeline {
                         git fetch origin
                         git reset --hard origin/$BRANCH
 
-                        # Keep .env while cleaning
+                        # Keep .env file
                         git clean -fd -e .env
 
                         echo "Git Sync Completed."
@@ -96,14 +96,14 @@ pipeline {
                 sh '''
                     echo "========== Stopping Existing Server =========="
 
-                    PID=$(lsof -ti:$PORT)
+                    PID=$(lsof -ti:$PORT || true)
 
                     if [ -n "$PID" ]; then
-                        kill -9 "$PID"
+                        echo "Stopping process: $PID"
+                        kill -9 $PID
                         sleep 5
-                        echo "Old Server Stopped."
                     else
-                        echo "No server running."
+                        echo "No process running on port $PORT"
                     fi
                 '''
             }
@@ -133,7 +133,7 @@ pipeline {
                 sh '''
                     echo "========== Verifying Deployment =========="
 
-                    if lsof -i:$PORT >/dev/null
+                    if lsof -i:$PORT >/dev/null 2>&1
                     then
                         echo "=========================================="
                         echo "Deployment Successful"
@@ -165,4 +165,3 @@ pipeline {
         }
     }
 }
-
