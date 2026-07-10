@@ -3,7 +3,8 @@ pipeline {
 
     environment {
         APP_DIR = "/home/cruds/crud_project"
-        VENV = "/home/cruds/env"
+        PYTHON = "/home/cruds/env/bin/python"
+        PIP = "/home/cruds/env/bin/pip"
         PORT = "7282"
         BRANCH = "main"
         BACKUP_DIR = "/home/cruds/backups"
@@ -14,21 +15,21 @@ pipeline {
         stage('Create Backup') {
             steps {
                 sh '''
-                    echo "Creating backup..."
+                    echo "========== Creating Backup =========="
 
-                    mkdir -p $BACKUP_DIR
+                    mkdir -p "$BACKUP_DIR"
 
-                    # Backup SQLite database
+                    # Backup SQLite DB
                     if [ -f "$APP_DIR/db.sqlite3" ]; then
                         cp "$APP_DIR/db.sqlite3" \
                         "$BACKUP_DIR/db_$(date +%Y%m%d_%H%M%S).sqlite3"
                     fi
 
-                    # Backup entire project
+                    # Backup complete project
                     tar -czf "$BACKUP_DIR/project_$(date +%Y%m%d_%H%M%S).tar.gz" \
                     "$APP_DIR"
 
-                    echo "Backup completed."
+                    echo "Backup Completed."
                 '''
             }
         }
@@ -37,13 +38,15 @@ pipeline {
             steps {
                 dir("${APP_DIR}") {
                     sh '''
-                        echo "Pulling latest code..."
+                        echo "========== Syncing Latest Code =========="
 
                         git fetch origin
                         git reset --hard origin/$BRANCH
-                        git clean -fd
 
-                        echo "Code synchronized."
+                        # Keep .env while cleaning
+                        git clean -fd -e .env
+
+                        echo "Git Sync Completed."
                     '''
                 }
             }
@@ -53,10 +56,12 @@ pipeline {
             steps {
                 dir("${APP_DIR}") {
                     sh '''
-                        source $VENV/bin/activate
+                        echo "========== Installing Requirements =========="
 
-                        pip install --upgrade pip
-                        pip install -r requirements.txt
+                        $PIP install --upgrade pip
+                        $PIP install -r requirements.txt
+
+                        echo "Requirements Installed."
                     '''
                 }
             }
@@ -66,9 +71,9 @@ pipeline {
             steps {
                 dir("${APP_DIR}") {
                     sh '''
-                        source $VENV/bin/activate
+                        echo "========== Running Makemigrations =========="
 
-                        python manage.py makemigrations
+                        $PYTHON manage.py makemigrations
                     '''
                 }
             }
@@ -78,9 +83,9 @@ pipeline {
             steps {
                 dir("${APP_DIR}") {
                     sh '''
-                        source $VENV/bin/activate
+                        echo "========== Running Migrations =========="
 
-                        python manage.py migrate
+                        $PYTHON manage.py migrate
                     '''
                 }
             }
@@ -89,16 +94,16 @@ pipeline {
         stage('Stop Existing Server') {
             steps {
                 sh '''
+                    echo "========== Stopping Existing Server =========="
+
                     PID=$(lsof -ti:$PORT)
 
-                    if [ ! -z "$PID" ]; then
-                        echo "Stopping server..."
-
-                        kill -9 $PID
-
+                    if [ -n "$PID" ]; then
+                        kill -9 "$PID"
                         sleep 5
+                        echo "Old Server Stopped."
                     else
-                        echo "No application running on port $PORT"
+                        echo "No server running."
                     fi
                 '''
             }
@@ -108,48 +113,51 @@ pipeline {
             steps {
                 dir("${APP_DIR}") {
                     sh '''
-                        source $VENV/bin/activate
+                        echo "========== Starting Django Server =========="
 
                         mkdir -p server_log
 
-                        nohup python manage.py runserver 0.0.0.0:$PORT \
+                        nohup $PYTHON manage.py runserver 0.0.0.0:$PORT \
                         > server_log/django.log 2>&1 &
 
                         sleep 10
+
+                        echo "Server Started."
                     '''
                 }
             }
         }
 
-        stage('Verify Server') {
+        stage('Verify Deployment') {
             steps {
                 sh '''
-                    if lsof -i:$PORT > /dev/null
+                    echo "========== Verifying Deployment =========="
+
+                    if lsof -i:$PORT >/dev/null
                     then
-                        echo "===================================="
-                        echo "Application Started Successfully"
-                        echo "Running on Port : $PORT"
-                        echo "===================================="
+                        echo "=========================================="
+                        echo "Deployment Successful"
+                        echo "Application Running on Port $PORT"
+                        echo "=========================================="
                     else
-                        echo "===================================="
-                        echo "Deployment Failed!"
-                        echo "===================================="
+                        echo "=========================================="
+                        echo "Deployment Failed"
+                        echo "=========================================="
                         exit 1
                     fi
                 '''
             }
         }
-
     }
 
     post {
 
         success {
-            echo 'Deployment Successful'
+            echo "Deployment Successful."
         }
 
         failure {
-            echo 'Deployment Failed'
+            echo "Deployment Failed."
         }
 
         always {
