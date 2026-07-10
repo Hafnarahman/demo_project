@@ -19,15 +19,12 @@ pipeline {
 
                     mkdir -p "$BACKUP_DIR"
 
-                    # Backup SQLite DB
                     if [ -f "$APP_DIR/db.sqlite3" ]; then
                         cp "$APP_DIR/db.sqlite3" \
                         "$BACKUP_DIR/db_$(date +%Y%m%d_%H%M%S).sqlite3"
                     fi
 
-                    # Backup Project
-                    tar -czf "$BACKUP_DIR/project_$(date +%Y%m%d_%H%M%S).tar.gz" \
-                    "$APP_DIR"
+                    tar -czf "$BACKUP_DIR/project_$(date +%Y%m%d_%H%M%S).tar.gz" "$APP_DIR"
 
                     echo "Backup Completed."
                 '''
@@ -43,8 +40,10 @@ pipeline {
                         git fetch origin
                         git reset --hard origin/$BRANCH
 
-                        # Keep .env file
-                        git clean -fd -e .env
+                        # Keep local files
+                        git clean -fd \
+                            -e .env \
+                            -e server_log
 
                         echo "Git Sync Completed."
                     '''
@@ -60,8 +59,6 @@ pipeline {
 
                         $PIP install --upgrade pip
                         $PIP install -r requirements.txt
-
-                        echo "Requirements Installed."
                     '''
                 }
             }
@@ -73,7 +70,7 @@ pipeline {
                     sh '''
                         echo "========== Running Makemigrations =========="
 
-                        $PYTHON manage.py makemigrations
+                        $PYTHON manage.py makemigrations --noinput
                     '''
                 }
             }
@@ -85,7 +82,7 @@ pipeline {
                     sh '''
                         echo "========== Running Migrations =========="
 
-                        $PYTHON manage.py migrate
+                        $PYTHON manage.py migrate --noinput
                     '''
                 }
             }
@@ -96,15 +93,20 @@ pipeline {
                 sh '''
                     echo "========== Stopping Existing Server =========="
 
-                    PID=$(lsof -ti:$PORT || true)
+                    # Try fuser first
+                    fuser -k ${PORT}/tcp 2>/dev/null || true
+
+                    sleep 3
+
+                    # Fallback using ss
+                    PID=$(ss -ltnp | grep ":${PORT} " | grep -o 'pid=[0-9]*' | cut -d= -f2 | head -1 || true)
 
                     if [ -n "$PID" ]; then
-                        echo "Stopping process: $PID"
-                        kill -9 $PID
-                        sleep 5
-                    else
-                        echo "No process running on port $PORT"
+                        echo "Killing PID $PID"
+                        kill -9 "$PID" || true
                     fi
+
+                    sleep 3
                 '''
             }
         }
@@ -118,11 +120,14 @@ pipeline {
                         mkdir -p server_log
 
                         nohup $PYTHON manage.py runserver 0.0.0.0:$PORT \
-                        > server_log/django.log 2>&1 &
+                        > server_log/django.log 2>&1 < /dev/null &
 
-                        sleep 10
+                        echo $! > server_log/django.pid
 
-                        echo "Server Started."
+                        sleep 5
+
+                        echo "Started PID:"
+                        cat server_log/django.pid
                     '''
                 }
             }
@@ -133,16 +138,22 @@ pipeline {
                 sh '''
                     echo "========== Verifying Deployment =========="
 
-                    if lsof -i:$PORT >/dev/null 2>&1
-                    then
-                        echo "=========================================="
+                    sleep 5
+
+                    if ss -ltn | grep ":${PORT} " >/dev/null; then
+                        echo "======================================"
                         echo "Deployment Successful"
-                        echo "Application Running on Port $PORT"
-                        echo "=========================================="
+                        echo "Running on Port ${PORT}"
+                        echo "======================================"
                     else
-                        echo "=========================================="
+                        echo "======================================"
                         echo "Deployment Failed"
-                        echo "=========================================="
+                        echo "======================================"
+
+                        echo "----- Django Log -----"
+
+                        cat ${APP_DIR}/server_log/django.log || true
+
                         exit 1
                     fi
                 '''
@@ -151,13 +162,12 @@ pipeline {
     }
 
     post {
-
         success {
-            echo "Deployment Successful."
+            echo "Deployment Successful"
         }
 
         failure {
-            echo "Deployment Failed."
+            echo "Deployment Failed"
         }
 
         always {
